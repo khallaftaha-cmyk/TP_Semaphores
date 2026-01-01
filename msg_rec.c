@@ -3,126 +3,75 @@
 #include <unistd.h>
 #include <string.h>
 #include <pthread.h>
+#include <semaphore.h>
 
-#define MAX_MESSAGES 5
-#define MSG_SIZE 128
+#define MSG_SIZE 100
 
-typedef struct{
-	char text[MSG_SIZE];
-	int priority;
-}message_t;
+char mail_box[MSG_SIZE];
 
-typedef struct{
-	int value;
-	pthread_mutex_t lock;
-	pthread_cond_t wait_queue;
-}semaphore_t;
+sem_t empty;
+sem_t full;
+pthread_mutex_t mutex;
 
-void sem_init_custom(semaphore_t *s, int init_val){
-	s->value = init_val;
-	pthread_mutex_init(&s->lock,NULL);
-	pthread_cond_init(&s->wait_queue, NULL);
-}
+void* sender(void* arg){
+	char* messages[] = {
+		"bonjour",
+		"message systéme",
+		"alerte",
+		"fin"
+	};
 
-void down(semaphore_t *s){
-	pthread_mutex_lock(&s->lock);
-	s->value--;
-	if(s->value < 0){
-		pthread_cond_wait(&s->wait_queue,&s->lock);
+	for(int i = 0;i < 4;i++){
+		sem_wait(&empty);
+		pthread_mutex_lock(&mutex);
+
+		strcpy(mail_box, messages[i]);
+		printf("[Emetteur] envoie : %s\n", mail_box);
+		fflush(stdout);
+
+		pthread_mutex_unlock(&mutex);
+		sem_post(&full);
 	}
-	pthread_mutex_unlock(&s->lock);
-}
 
-void up(semaphore_t *s){
-	pthread_mutex_lock(&s->lock);
-	s->value++;
-	if(s->value <= 0){
-		pthread_cond_signal(&s->wait_queue);
-	}
-	pthread_mutex_unlock(&s->lock);
-}
-
-typedef struct{
-	message_t queue[MAX_MESSAGES];
-	int head;
-	int tail;
-	semaphore_t empty;
-	semaphore_t full;
-	semaphore_t mutex;
-}mailbox_t;
-
-void send_message(mailbox_t *box, const char* content){
-	down(&box->empty);
-	down(&box->mutex);
-
-	strncpy(box->queue[box->tail].text, content, MSG_SIZE);
-	printf("[Expéditeur]Message envoyé:%s\n",content);
-	box->tail = (box->tail + 1) % MAX_MESSAGES;
-
-	up(&box->mutex);
-	up(&box->full);
-}
-
-void sem_destroy_custom(semaphore_t *s){
-	pthread_mutex_destroy(&s->lock);
-	pthread_cond_destroy(&s->wait_queue);
-}
-
-void recieve_message(mailbox_t *box, char *buffer){
-	down(&box->full);
-	down(&box->mutex);
-
-	strncpy(buffer, box->queue[box->head].text, MSG_SIZE);
-	printf("[Destinataire]Message reçue:%s\n",buffer);
-	box->head = (box->head + 1) % MAX_MESSAGES;
-
-	up(&box->mutex);
-	up(&box->empty);
-}
-
-mailbox_t my_mailbox;
-
-void* sender_thread(void *arg){
-	char* messages[] = {"bonjour", "comment ça va", "alertes sytéme", "fin de transmission"};
-	for(int i = 0; i < 4; i++){
-		send_message(&my_mailbox, messages[i]);
-		sleep(1);
-	}
 	return NULL;
 }
 
-void* reciever_thread(void* arg){
+void* reciever(void* arg){
 	char buffer[MSG_SIZE];
+
 	for(int i = 0; i < 4; i++){
-		recieve_message(&my_mailbox, buffer);
-		sleep(2);
+		sem_wait(&full);
+		pthread_mutex_lock(&mutex);
+
+		strcpy(buffer, mail_box);
+		printf("[Recepteur] reçoit : %s\n", buffer);
+		fflush(stdout);
+
+		pthread_mutex_unlock(&mutex);
+		sem_post(&empty);
 	}
+
 	return NULL;
 }
 
 int main(){
-	pthread_t t1,t2;
+	pthread_t t1, t2;
 
-	my_mailbox.head = 0;
-	my_mailbox.tail = 0;
+	sem_init(&empty, 0, 1);
+	sem_init(&full, 0, 0);
+	pthread_mutex_init(&mutex, NULL);
 
-	sem_init_custom(&my_mailbox.full, 0);
-	sem_init_custom(&my_mailbox.empty, MAX_MESSAGES);
-	sem_init_custom(&my_mailbox.mutex, 1);
-	
-	printf("deamarrage de systéme e méssagerie...\n");
-	
-	pthread_create(&t1, NULL, sender_thread, NULL);
-	pthread_create(&t2, NULL, reciever_thread, NULL);
+	printf("Demarrage du systéme de messagerie\n");
 
-	pthread_join(1,NULL);
-	pthread_join(2,NULL);
+	pthread_create(&t1, NULL, sender, NULL);
+	pthread_create(&t2, NULL, reciever, NULL);
 
-	sem_destroy(&my_mailbox.full);
-	sem_destroy(&my_mailbox.empty);
-	sem_destroy(&my_mailbox.mutex);
+	sem_destroy(&empty);
+	sem_destroy(&full);
+	pthread_mutex_destroy(&mutex);
 
-	printf("\nsytéme arrete\n");
+	printf("Systéme arreté\n");
+
 	return 0;
 }
 

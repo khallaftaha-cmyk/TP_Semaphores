@@ -36,7 +36,7 @@ void producteur(int id){
 		sem_wait(mutex);
 
 		data->buffer[data->in] = item;
-		printf("Redacteur %d : J'ai écrit %d à l'index %d\n",id , item, data->in);
+		printf("Producteur %d : J'ai écrit %d à l'index %d\n",id , item, data->in);
 		data->in = (data->in + 1) % BUFFER_SIZE;
 
 		sem_post(mutex);
@@ -46,6 +46,11 @@ void producteur(int id){
 	}
 
 	munmap(data, sizeof(shared_data));
+
+	sem_close(mutex);
+	sem_close(full);
+	sem_close(empty);
+
 	exit(0);
 }
 
@@ -73,6 +78,11 @@ void consommateur(int id){
 	}
 
 	munmap(data, sizeof(shared_data));
+
+	sem_close(mutex);
+	sem_close(full);
+	sem_close(empty);
+
 	exit(0);
 }
 
@@ -88,7 +98,7 @@ int main(){
 
 	sem_open(SEM_MUTEX, O_CREAT, 0666, 1);
 	sem_open(SEM_EMPTY, O_CREAT, 0666, BUFFER_SIZE);
-	sem_open(SEM_MUTEX, O_CREAT, 0666, 0);
+	sem_open(SEM_FULL, O_CREAT, 0666, 0);
 
 	for(int i = 0; i < 2; i++){
 		pid_t pid = fork();
@@ -107,13 +117,13 @@ int main(){
 	}
 
 
-	for(int i = 0; i < 3; i++) wait(NULL);
+	for(int i = 0; i < 4; i++) wait(NULL);
 
 	munmap(data, sizeof(shared_data));
 	shm_unlink(SHM_NAME);
 	sem_unlink(SEM_MUTEX);
 	sem_unlink(SEM_EMPTY);
-	sem_unlink(SEM_MUTEX);
+	sem_unlink(SEM_FULL);
 
 	printf("FIn du programme.\n");
 	return 0;
